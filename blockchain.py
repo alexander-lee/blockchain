@@ -9,7 +9,7 @@ class Blockchain(object):
         self.current_transactions = []
 
         # Create the genesis block
-        self.add_block(previous_hash=1, proof=100)
+        self.add_block(previous_hash=self.hash(1), proof=100)
 
     @property
     def last_block(self):
