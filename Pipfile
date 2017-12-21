@@ -6,6 +6,7 @@ name = "pypi"
 [dev-packages]
 
 [packages]
+validators = "*"
 
 [requires]
 python_version = "3.6"
