@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request
-from uuid import uuid4
+from shortuuid import uuid
 import time
 import validators
 import argparse
@@ -9,7 +9,7 @@ from nodes import Node
 from blockchain import Blockchain
 
 app = Flask(__name__)
-node_identifier = str(uuid4()).replace('-', '')
+node_id = uuid()
 blockchain = Blockchain()
 
 
@@ -27,7 +27,7 @@ def mine():
     # TODO: Change amount so it decreases over time
     blockchain.add_transaction(
         sender='0',
-        recipient=node_identifier,
+        recipient=node_id,
         amount='1'
     )
 
@@ -127,16 +127,16 @@ parser.add_argument('-p', type=int)
 args = parser.parse_args()
 
 if __name__ == '__main__':
-    node = Node(name=args.n or 'node', port=args.p or 5000)
-
+    node = Node(name=args.n or f'node-{node_id}', port=args.p or 5000)
     try:
-        while True:
-            print("------------------------------")
-            message = input('<< ')
-            node.send(type='shit', message=message)
-            time.sleep(0.3)
+        print(f'Starting node-{node_id}')
+        while not node.ready:
+            node.send('version')
+            time.sleep(1)
+
+        print(node.peers)
 
     except (EOFError, KeyboardInterrupt):
-        del node
+        node.stop()
 
     # app.run(host='localhost', port=args.p or 5000)

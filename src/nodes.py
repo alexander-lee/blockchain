@@ -10,7 +10,7 @@ except ImportError:
     from Queue import Empty
 
 from mesh.links import UDPLink
-from mesh.filters import UniqueFilter
+from mesh.filters import DuplicateFilter
 from mesh.node import Node as NetworkComponent
 
 
@@ -24,14 +24,15 @@ class Node(threading.Thread):
         self.peer_info = {}
         self.peers = set()
 
-        self.links = [UDPLink('en0', port=port)]
-        self.network = NetworkComponent(self.links, name, Filters=(UniqueFilter,))
+        self.links = [UDPLink('en0', port=5000)]
+        self.network = NetworkComponent(self.links, name, Filters=(DuplicateFilter,))
+
         self.keep_listening = True
+        self.ready = False
 
         # Start Network Component
         [link.start() for link in self.links]
         self.network.start()
-
         self.start()
 
     # Threading
@@ -51,40 +52,69 @@ class Node(threading.Thread):
         self.join()
 
     # I/O
-    def send(self, type, message, encoding='UTF-8'):
+    def send(self, type, message='', target='', encoding='UTF-8'):
         data = json.dumps({
             'type': type,
             'name': self.name,
             'address': self.address,
-            'message': message
+            'message': message,
+            'target': target
         })
+
+        print('sending {}'.format(data))
 
         self.network.send(bytes(data, encoding))
 
     def recv(self, packet, interface):
         data = json.loads(packet.decode())
+
+        # Filter Packets not targeted to you
+        if len(data['target']) != 0 and data['target'] != self.peer_str(self.address, self.name):
+            return
+
+        print('received {}'.format(data))
+
+        # Handle Request
         msg_type = data['type']
 
         if msg_type == 'version':
-            pass
-        print('\n>> {}'.format(data))
+            registered = self.register_peer(data['address'], data['name'])
+
+            if registered:
+                self.send('verack', target=self.peer_str(data['address'], data['name']))
+                self.send('version', target=self.peer_str(data['address'], data['name']))
+        if msg_type == 'verack':
+            self.ready = True
 
     # Methods
+    def peer_str(self, address, name=''):
+        parsed_url = urlparse(address)
+        return f'{parsed_url.path}:{name}'
+
     def register_peer(self, address, name=''):
         """
         Add a new node to the list of nodes
 
-        @param address: <str> Address of the node (eg: 'http://127.0.0.1:5000')
+        @param address: <str> Address of the node (eg: '127.0.0.1')
+        @param name: <str> Name of the node (eg: 'node-142231')
+
+        @return: <bool> True if a new peer was registered, False otherwise
         """
 
-        parsed_url = urlparse(address)
+        peer_str = self.peer_str(address, name)
 
-        self.peers.add(f'{parsed_url.netloc}:{name}')
-        self.peer_info[f'{parsed_url.netloc}:{name}'] = {
-            'name': name,
-            'address': parsed_url.netloc,
-            'lastrecv': time()
-        }
+        if peer_str not in self.peers:
+            self.peers.add(peer_str)
+            self.peer_info[peer_str] = {
+                'name': name,
+                'address': address,
+                'lastrecv': time()
+            }
+
+            return True
+        else:
+            return False
+
 
 class BlockchainNode(Node):
     """

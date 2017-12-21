@@ -10,6 +10,7 @@ name = "pypi"
 validators = "*"
 "mesh-networking" = "*"
 netifaces = "*"
+shortuuid = "*"
 
 
 [requires]
