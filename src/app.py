@@ -1,7 +1,10 @@
 from flask import Flask, jsonify, request
 from uuid import uuid4
+import time
 import validators
 import argparse
+
+from nodes import Node
 
 from blockchain import Blockchain
 
@@ -118,9 +121,22 @@ def consensus():
 """
 
 parser = argparse.ArgumentParser()
+parser.add_argument('-n', type=str)
 parser.add_argument('-p', type=int)
 
 args = parser.parse_args()
 
 if __name__ == '__main__':
-    app.run(host='localhost', port=args.p or 5000)
+    node = Node(name=args.n or 'node', port=args.p or 5000)
+
+    try:
+        while True:
+            print("------------------------------")
+            message = input('<< ')
+            node.send(type='shit', message=message)
+            time.sleep(0.3)
+
+    except (EOFError, KeyboardInterrupt):
+        del node
+
+    # app.run(host='localhost', port=args.p or 5000)

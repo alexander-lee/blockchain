@@ -6,7 +6,11 @@ name = "pypi"
 [dev-packages]
 
 [packages]
+
 validators = "*"
+"mesh-networking" = "*"
+netifaces = "*"
+
 
 [requires]
 python_version = "3.6"
