@@ -1,18 +1,16 @@
 import hashlib
 import json
-import requests
 from time import time
-from urllib.parse import urlparse
 
 
 class Blockchain(object):
-    def __init__(self):
-        self.chain = []
+    def __init__(self, chain=[]):
+        self.chain = chain
         self.current_transactions = []
-        self.nodes = set()
 
         # Create the genesis block
-        self.add_block(previous_hash=1, proof=100)
+        if len(chain) == 0:
+            self.add_block(previous_hash=1, proof=100)
 
     @property
     def last_block(self):
@@ -83,49 +81,6 @@ class Blockchain(object):
             proof += 1
 
         return proof
-
-    def register_node(self, address, identifer=None):
-        """
-        Add a new node to the list of nodes
-
-        @param address: <str> Address of the node (eg: 'http://127.0.0.1:5000')
-        @param identifer: <str> UUID of the node
-        """
-
-        parsed_url = urlparse(address)
-        self.nodes.add(parsed_url.netloc)
-
-    def resolve_conflicts(self):
-        """
-        The Consensus Algorithm, replaces our chain with the longest valid chain in the network
-
-        @return: <bool> True if our chain was replaced, False otherwise
-        """
-
-        neighbours = self.nodes
-        new_chain = None
-
-        max_chain_length = len(self.chain)
-
-        for node in neighbours:
-            response = requests.get(f'http://{node}/chain')
-
-            if response.status_code == 200:
-                node_data = response.json()
-                chain = node_data['chain']
-                length = node_data['length']
-                print(self.valid_chain(chain))
-
-                if length > max_chain_length and self.valid_chain(chain):
-                    new_chain = chain
-                    max_chain_length = length
-
-        # Replace our chain if we found a longer one
-        if new_chain is not None:
-            self.chain = new_chain
-            return True
-
-        return False
 
     @staticmethod
     def hash(block):
