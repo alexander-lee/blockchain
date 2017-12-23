@@ -6,7 +6,7 @@ from time import time
 class Blockchain(object):
     def __init__(self, chain=[]):
         self.chain = chain
-        self.transaction_pool = set()
+        self.transaction_pool = []
         self.transactions_info = {'0': None}  # 0 is a reserved tx hash
 
         # Create the genesis block
@@ -37,12 +37,12 @@ class Blockchain(object):
         block = {
             'index': len(self.chain) + 1,
             'timestamp': time(),
-            'transactions': list(self.transaction_pool),
+            'transactions': self.transaction_pool,
             'proof': proof,
             'previous_hash': previous_hash or self.hash(self.chain[-1]),
         }
 
-        self.transaction_pool = set()
+        self.transaction_pool = []
         self.chain.append(block)
 
         return block
@@ -59,14 +59,8 @@ class Blockchain(object):
         @param amount: <int> Amount
         @param previous_hash: <str> hash of the previous transaction used
 
-        @return: <str> transaction hash if it was successful, or None
+        @return: <dict> transaction if it was successful, or None
         """
-
-        # Small validation of the transaction
-        if previous_hash in self.transaction_pool:
-            prev_tx = self.transactions_info[previous_hash]
-            if prev_tx['recipient'] != sender:
-                return None
 
         tx = {
             'previous_hash': previous_hash,
@@ -75,29 +69,60 @@ class Blockchain(object):
             'amount': amount
         }
 
-        tx_hash = self.hash(tx)
+        if not self.valid_transaction(tx):
+            print('Invalid Transaction!')
+            return None
 
-        self.transaction_pool.add(tx_hash)
+        tx_hash = self.hash(self.hash(tx))
+
+        self.transaction_pool.append(tx_hash)
         self.transactions_info[tx_hash] = tx
 
         return tx_hash
 
-    def proof_of_work(self, last_proof):
+    def valid_transaction(self, transaction):
         """
-        Proof of Work Algorithm:
-            - Find a number p' such that hash(pp') has 4 leading zeros
-            - p was the previous block's proof of work, p' is the goal
+        Determines whether a transaction is valid or not
 
-        @param last_proof: <int> Last Block's proof of work
+        It needs to verify three things:
+        - Digital Signature
+        - Valid Transaction Format
+        - Unspent Transaction Output of Sender >= Amount in this transaction
 
-        @return: <int> proof of work for the new block
+        Note: We aren't tracking UTXOs so we're gonna do a simple verification
+              of checking the previous transaction
+
+        @param transaction: <dict>
+
+        @return <bool> True/False depending on whether the transaction is valid
         """
 
-        proof = 0
-        while self.is_valid_proof(last_proof, proof) is False:
-            proof += 1
+        # Validate keys
+        keys = ['sender', 'recipient', 'amount', 'previous_hash']
 
-        return proof
+        for key in keys:
+            if key not in transaction:
+                return False
+
+        # Validate the transaction's previous_hash
+        previous_hash = transaction['previous_hash']
+
+        # Ignore reserved '0'
+        if previous_hash == '0':
+            return True
+
+        if previous_hash in self.transaction_pool:
+            prev_tx = self.transactions_info[previous_hash]
+
+            if prev_tx['recipient'] != transaction['sender']:
+                return False
+
+            if prev_tx['amount'] < transaction['amount']:
+                return False
+        else:
+            return False
+
+        return True
 
     @staticmethod
     def hash(_dict):
@@ -114,7 +139,7 @@ class Blockchain(object):
         return hashlib.sha256(dict_str).hexdigest()
 
     @staticmethod
-    def is_valid_proof(last_proof, proof):
+    def valid_proof(last_proof, proof):
         """
         Determines if it is a valid proof of work
 
@@ -128,7 +153,7 @@ class Blockchain(object):
         guess_hash = hashlib.sha256(guess).hexdigest()
 
         # TODO: Change the criteria
-        return guess_hash[:4] == "0000"
+        return guess_hash[:4] == "0" * 4
 
     @staticmethod
     def valid_chain(chain):
@@ -152,34 +177,19 @@ class Blockchain(object):
             print(f'Next: {next_block}')
 
             if block['index'] != i+1 or next_block['index'] != i+2:
-                print('index are off')
+                print('Indices aren\'t correct')
                 return False
 
             if block['timestamp'] > next_block['timestamp']:
-                print('timestamps suck')
+                print('Timestamps aren\'t ordered!')
                 return False
 
             if Blockchain.hash(block) != next_block['previous_hash']:
-                print('hash failed')
+                print('Hashes aren\'t correct!')
                 return False
 
             if not Blockchain.is_valid_proof(block['proof'], next_block['proof']):
-                print('unalid proof')
+                print('Proof of Work is not valid!')
                 return False
 
         return True
-
-    @staticmethod
-    def valid_transaction(transaction):
-        """
-        Determines whether a transaction is valid or not
-
-        It needs to verify two things:
-        - Digital Signature
-        - Unspent Transaction Output of Sender >= Amount in this transaction
-
-        @param transaction: <dict>
-
-        @return <bool> True/False depending on whether the transaction is valid
-        """
-        pass

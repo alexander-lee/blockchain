@@ -34,6 +34,7 @@ class Node(threading.Thread):
 
         self.keep_listening = True
         self.ready = False
+        self.synced = False
 
         # Start Network Component
         [link.start() for link in self.links]
@@ -70,7 +71,7 @@ class Node(threading.Thread):
             'target': target
         })
 
-        print('sending {}'.format(data))
+        print('\nsending {}'.format(data))
 
         self.network.send(bytes(data, encoding))
 
@@ -85,7 +86,7 @@ class Node(threading.Thread):
         if len(data['target']) != 0 and data['target'] != self.identifier:
             return
 
-        print('received {}'.format(data))
+        print('\nreceived {}'.format(data))
 
         self.handle_data(data)
 
@@ -188,10 +189,13 @@ class BlockchainNode(Node):
         # Check if we actually need to update our blockchain
         if max_height_peer:
             self.send('getdata', target=max_height_peer)
+        else:
+            # Didn't need to update our blockchain
+            self.synced = True
 
     # @override
     def handle_data(self, data):
-        Node.handle_data(data)
+        Node.handle_data(self, data)
 
         # Handle Request
         msg_type = data['type']
@@ -208,10 +212,14 @@ class BlockchainNode(Node):
 
             if Blockchain.valid_chain(chain):
                 self.blockchain.chain = chain
+                self.synced = True
+            else:
+                self.send('getdata', target=identifier)
 
         elif msg_type == 'addblock':
             new_block = message['block']
-            chain = self.blockchain.chain + new_block
+            chain = self.blockchain.chain
+            chain.append(new_block)
 
             if Blockchain.valid_chain(chain):
                 self.blockchain.chain = chain
@@ -223,6 +231,23 @@ class MinerNode(BlockchainNode):
 
     - In charge of adding new blocks to the blockchain
     """
+    def proof_of_work(self, last_proof):
+        """
+        Proof of Work Algorithm:
+            - Find a number p' such that hash(pp') has 4 leading zeros
+            - p was the previous block's proof of work, p' is the goal
+
+        @param last_proof: <int> Last Block's proof of work
+
+        @return: <int> proof of work for the new block
+        """
+
+        proof = 0
+        while Blockchain.valid_proof(last_proof, proof) is False:
+            proof += 1
+
+        return proof
+
     def mine(self):
         # 1. Find the Proof of work
         # 2. Create the block
@@ -230,14 +255,14 @@ class MinerNode(BlockchainNode):
 
         last_block = self.blockchain.last_block
         last_proof = last_block['proof']
-        proof = self.blockchain.proof_of_work(last_proof)
+        proof = self.proof_of_work(last_proof)
 
         # Create a special transaction which acts as the reward for the miner
         # TODO: Change amount so it decreases over time
         self.blockchain.add_transaction(
             previous_hash='0',
             sender='0',
-            recipient=self.identifer,  # Change later
+            recipient=self.identifier,  # TODO: Change later
             amount=50
         )
 
@@ -249,19 +274,17 @@ class MinerNode(BlockchainNode):
 
     # @override
     def handle_data(self, data):
-        BlockchainNode.handle_data(data)
+        BlockchainNode.handle_data(self, data)
 
         # Handle Request
         msg_type = data['type']
-        identifier = data['identifier']
         message = json.loads(data['message']) if data['message'] else {}
 
         if msg_type == 'addtx':
             # Add Transaction
             new_tx = message['tx']
+            self.blockchain.add_transaction(**new_tx)
 
-            if Blockchain.valid_transaction(new_tx):
-                self.blockchain.transaction_pool.append(new_tx)
 
 class SPVNode(Node):
     """

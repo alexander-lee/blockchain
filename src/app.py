@@ -146,12 +146,19 @@ if __name__ == '__main__':
     try:
         print(f'Starting node-{node_id}')
 
+        # Establish Connection
         while not node.ready:
             node.send('version', message=json.dumps({
                 'height': len(node.blockchain.chain)
             }))
             time.sleep(1)
 
+        # Sync up with the other nodes
+        node.resolve_conflicts()
+        while not node.synced:
+            pass
+
+        # Listen for new blocks being added
         while True:
             pass
 
