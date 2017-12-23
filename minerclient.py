@@ -3,8 +3,8 @@ import time
 import json
 import argparse
 
-from nodes import BlockchainNode
-from blockchain import Blockchain
+from src.nodes import MinerNode
+from src.blockchain import Blockchain
 
 
 """
@@ -17,6 +17,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-n', type=str)
 parser.add_argument('-p', type=int)
 parser.add_argument('--file', type=str)
+parser.add_argument('-o', type=str)
 
 args = parser.parse_args()
 node_id = uuid()
@@ -28,9 +29,10 @@ if __name__ == '__main__':
         data = json.load(open(filename))
         blockchain = Blockchain(data['chain'])
     else:
+        filename = args.o
         blockchain = Blockchain()
 
-    node = BlockchainNode(
+    node = MinerNode(
         name=args.n or f'node-{node_id}',
         port=args.p or 5000,
         blockchain=blockchain
@@ -51,15 +53,17 @@ if __name__ == '__main__':
         while not node.synced:
             time.sleep(1)
 
-        # Listen for new blocks being added
+        # Mine blocks
         while True:
-            user_input = input('\nDo you want to add a transaction? (y/n) ')
+            user_input = input('\nType anything to mine: ')
+            if (user_input):
+                print(f'{node.identifier} is mining!')
+                node.mine()
 
-            if user_input.lower == 'yes' or user_input.lower == 'y':
-                recipient = input('Recipient: ')
-                amount = input('Amount: ')
+                # Save Blockchain to file
+                with open(filename or 'blockchain.json', 'w') as outfile:
+                    json.dump({'chain': blockchain.chain}, outfile, indent=4)
 
-                node.blockchain.add_transaction(node.identifier, recipient, amount, '0')
             time.sleep(1)
 
     except (EOFError, KeyboardInterrupt):

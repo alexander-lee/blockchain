@@ -139,17 +139,17 @@ class Blockchain(object):
         return hashlib.sha256(dict_str).hexdigest()
 
     @staticmethod
-    def valid_proof(last_proof, proof):
+    def valid_proof(prev_hash, proof):
         """
         Determines if it is a valid proof of work
 
-        @param last_proof: <int>
+        @param prev_hash: <str>
         @param proof: <int>
 
         @return: <bool> T/F depending on whether the hash fits the criteria
         """
 
-        guess = f'{last_proof}{proof}'.encode()
+        guess = f'{prev_hash}{proof}'.encode()
         guess_hash = hashlib.sha256(guess).hexdigest()
 
         # TODO: Change the criteria
@@ -173,23 +173,29 @@ class Blockchain(object):
         for i in range(0, len(chain)-1):
             block = chain[i]
             next_block = chain[i+1]
-            print(f'Block: {block}')
-            print(f'Next: {next_block}')
 
             if block['index'] != i+1 or next_block['index'] != i+2:
                 print('Indices aren\'t correct')
+                print(f'Block: {block}')
+                print(f'Next: {next_block}')
                 return False
 
             if block['timestamp'] > next_block['timestamp']:
                 print('Timestamps aren\'t ordered!')
+                print(f'Block: {block}')
+                print(f'Next: {next_block}')
                 return False
 
             if Blockchain.hash(block) != next_block['previous_hash']:
                 print('Hashes aren\'t correct!')
+                print(f'Block: {block}')
+                print(f'Next: {next_block}')
                 return False
 
-            if not Blockchain.is_valid_proof(block['proof'], next_block['proof']):
+            if not Blockchain.valid_proof(Blockchain.hash(block), next_block['proof']):
                 print('Proof of Work is not valid!')
+                print(f'Block: {block}')
+                print(f'Next: {next_block}')
                 return False
 
         return True

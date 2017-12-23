@@ -14,7 +14,7 @@ from mesh.links import UDPLink
 from mesh.filters import DuplicateFilter
 from mesh.node import Node as NetworkComponent
 
-from blockchain import Blockchain
+from .blockchain import Blockchain
 
 
 class Node(threading.Thread):
@@ -91,22 +91,22 @@ class Node(threading.Thread):
         self.handle_data(data)
 
         # Update Peer Info
-        identifier = data['identifier']
-        if identifier in self.peers:
-            self.peer_info[identifier]['lastrecv'] = time()
+        sender = data['identifier']
+        if sender in self.peers:
+            self.peer_info[sender]['lastrecv'] = time()
 
     def handle_data(self, data):
         # Handle Request
         msg_type = data['type']
-        identifier = data['identifier']
+        sender = data['identifier']
         message = json.loads(data['message']) if data['message'] else {}
 
         if msg_type == 'version':
-            registered = self.register_peer(identifier, height=message.get('height'))
+            registered = self.register_peer(sender, height=message.get('height'))
 
             if registered:
-                self.send('verack', target=identifier)
-                self.send('version', target=identifier, message=json.dumps({
+                self.send('verack', target=sender)
+                self.send('version', target=sender, message=json.dumps({
                     'height': len(self.blockchain.chain)
                 }))
             print(self.peers)
@@ -174,6 +174,7 @@ class BlockchainNode(Node):
         Note: This is not the algorithm the actual Bitcoin Core uses as it requires much more P2P,
         as a proof of concept, this was more suitable
         """
+        print('Resolving Conflicts!')
 
         max_height = len(self.blockchain.chain)
         max_height_peer = None
@@ -199,30 +200,46 @@ class BlockchainNode(Node):
 
         # Handle Request
         msg_type = data['type']
-        identifier = data['identifier']
+        sender = data['identifier']
         message = json.loads(data['message']) if data['message'] else {}
 
         if msg_type == 'getdata':
-            self.send('block', target=identifier, message=json.dumps({
+            self.send('chain', target=sender, message=json.dumps({
                 'chain': self.blockchain.chain
             }))
 
-        elif msg_type == 'block':
+        elif msg_type == 'chain':
             chain = message['chain']
 
+            # Update Peer Info
+            if sender in self.peers:
+                self.peer_info[sender]['height'] = len(chain)
+
+            # Update Chain
             if Blockchain.valid_chain(chain):
                 self.blockchain.chain = chain
                 self.synced = True
             else:
-                self.send('getdata', target=identifier)
+                # Invaild chain, ask for another peer's
+                self.resolve_conflicts()
 
         elif msg_type == 'addblock':
             new_block = message['block']
-            chain = self.blockchain.chain
+            new_height = message['height']
+
+            # Update Peer Info
+            if sender in self.peers:
+                self.peer_info[sender]['height'] = new_height
+
+            # Update Chain
+            chain = self.blockchain.chain.copy()
             chain.append(new_block)
 
             if Blockchain.valid_chain(chain):
                 self.blockchain.chain = chain
+            else:
+                # Invalid chain, ask for another peer's chain
+                self.resolve_conflicts()
 
 
 class MinerNode(BlockchainNode):
@@ -231,19 +248,19 @@ class MinerNode(BlockchainNode):
 
     - In charge of adding new blocks to the blockchain
     """
-    def proof_of_work(self, last_proof):
+    def proof_of_work(self, prev_hash):
         """
         Proof of Work Algorithm:
             - Find a number p' such that hash(pp') has 4 leading zeros
-            - p was the previous block's proof of work, p' is the goal
+            - p was the previous block's hash, p' is the goal
 
-        @param last_proof: <int> Last Block's proof of work
+        @param prev_hash: <str> Last Block's hash
 
         @return: <int> proof of work for the new block
         """
 
         proof = 0
-        while Blockchain.valid_proof(last_proof, proof) is False:
+        while Blockchain.valid_proof(prev_hash, proof) is False:
             proof += 1
 
         return proof
@@ -254,8 +271,8 @@ class MinerNode(BlockchainNode):
         # 3. Reward the miner
 
         last_block = self.blockchain.last_block
-        last_proof = last_block['proof']
-        proof = self.proof_of_work(last_proof)
+        prev_hash = Blockchain.hash(last_block)
+        proof = self.proof_of_work(prev_hash)
 
         # Create a special transaction which acts as the reward for the miner
         # TODO: Change amount so it decreases over time
@@ -266,10 +283,10 @@ class MinerNode(BlockchainNode):
             amount=50
         )
 
-        previous_hash = self.blockchain.hash(last_block)
-        block = self.blockchain.add_block(proof, previous_hash)
+        block = self.blockchain.add_block(proof, prev_hash)
         self.send('addblock', message=json.dumps({
-            'block': block
+            'block': block,
+            'height': len(self.blockchain.chain)
         }))
 
     # @override
