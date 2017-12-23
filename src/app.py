@@ -148,11 +148,9 @@ if __name__ == '__main__':
 
         while not node.ready:
             node.send('version', message=json.dumps({
-                'BestHeight': len(blockchain.chain)
+                'height': len(node.blockchain.chain)
             }))
             time.sleep(1)
-
-
 
         while True:
             pass

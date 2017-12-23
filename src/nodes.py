@@ -18,11 +18,13 @@ from blockchain import Blockchain
 
 
 class Node(threading.Thread):
-    def __init__(self, name, port=5000):
+    def __init__(self, name, port=5000, blockchain=Blockchain()):
         threading.Thread.__init__(self)
 
         self.name = name
         self.address = ni.ifaddresses('en0')[ni.AF_INET][0]['addr']
+
+        self.blockchain = blockchain
 
         self.peer_info = {}
         self.peers = set()
@@ -85,25 +87,33 @@ class Node(threading.Thread):
 
         print('received {}'.format(data))
 
-        # Handle Request
-        msg_type = data['type']
-        identifier = data['identifier']
-
-        if msg_type == 'version':
-            registered = self.register_peer(identifier)
-
-            if registered:
-                self.send('verack', target=identifier)
-                self.send('version', target=identifier)
-        if msg_type == 'verack':
-            self.ready = True
+        self.handle_data(data)
 
         # Update Peer Info
+        identifier = data['identifier']
         if identifier in self.peers:
             self.peer_info[identifier]['lastrecv'] = time()
 
+    def handle_data(self, data):
+        # Handle Request
+        msg_type = data['type']
+        identifier = data['identifier']
+        message = json.loads(data['message']) if data['message'] else {}
+
+        if msg_type == 'version':
+            registered = self.register_peer(identifier, height=message.get('height'))
+
+            if registered:
+                self.send('verack', target=identifier)
+                self.send('version', target=identifier, message=json.dumps({
+                    'height': len(self.blockchain.chain)
+                }))
+            print(self.peers)
+        elif msg_type == 'verack':
+            self.ready = True
+
     # Methods
-    def register_peer(self, identifier):
+    def register_peer(self, identifier, height):
         """
         Add a new node to the list of nodes
 
@@ -117,7 +127,8 @@ class Node(threading.Thread):
             self.peer_info[identifier] = {
                 'identifier': identifier,
                 'lastrecv': time(),
-                'lastsend': None
+                'lastsend': None,
+                'height': height
             }
 
             return True
@@ -149,47 +160,108 @@ class BlockchainNode(Node):
 
     - Maintains the full blockchain and all interactions
     - Independently and authoritatively verifies any transaction
-    """
 
-    def __init__(self, name, port=5000, blockchain=Blockchain()):
-        self.blockchain = blockchain
-        Node.__init__(self, name, port)
+    1. Send version to be in the network
+    2. Synchronize the blockchain
+    3. Listen for new blocks and transactions
+    """
 
     def resolve_conflicts(self):
         """
         The Consensus Algorithm, replaces our chain with the longest valid chain in the network
 
-        @return: <bool> True if our chain was replaced, False otherwise
+        Note: This is not the algorithm the actual Bitcoin Core uses as it requires much more P2P,
+        as a proof of concept, this was more suitable
         """
 
-        neighbours = self.peers
-        new_chain = None
+        max_height = len(self.blockchain.chain)
+        max_height_peer = None
 
-        max_chain_length = len(self.chain)
+        for peer in self.peers:
+            peer_info = self.peer_info.get(peer)
+            if peer_info:
+                height = peer_info.get('height')
+                if height > max_height:
+                    max_height = height
+                    max_height_peer = peer
 
-        for node in neighbours:
-            response = requests.get(f'http://{node}/chain')
+        # Check if we actually need to update our blockchain
+        if max_height_peer:
+            self.send('getdata', target=max_height_peer)
 
-            if response.status_code == 200:
-                node_data = response.json()
-                chain = node_data['chain']
-                length = node_data['length']
-                print(self.valid_chain(chain))
+    # @override
+    def handle_data(self, data):
+        Node.handle_data(data)
 
-                if length > max_chain_length and self.valid_chain(chain):
-                    new_chain = chain
-                    max_chain_length = length
+        # Handle Request
+        msg_type = data['type']
+        identifier = data['identifier']
+        message = json.loads(data['message']) if data['message'] else {}
 
-        # Replace our chain if we found a longer one
-        if new_chain is not None:
-            self.chain = new_chain
-            return True
+        if msg_type == 'getdata':
+            self.send('block', target=identifier, message=json.dumps({
+                'chain': self.blockchain.chain
+            }))
 
-        return False
+        elif msg_type == 'block':
+            chain = message['chain']
 
-class MinerNode(Node):
-    pass
+            if Blockchain.valid_chain(chain):
+                self.blockchain.chain = chain
 
+        elif msg_type == 'addblock':
+            new_block = message['block']
+            chain = self.blockchain.chain + new_block
+
+            if Blockchain.valid_chain(chain):
+                self.blockchain.chain = chain
+
+
+class MinerNode(BlockchainNode):
+    """
+    Miner Node
+
+    - In charge of adding new blocks to the blockchain
+    """
+    def mine(self):
+        # 1. Find the Proof of work
+        # 2. Create the block
+        # 3. Reward the miner
+
+        last_block = self.blockchain.last_block
+        last_proof = last_block['proof']
+        proof = self.blockchain.proof_of_work(last_proof)
+
+        # Create a special transaction which acts as the reward for the miner
+        # TODO: Change amount so it decreases over time
+        self.blockchain.add_transaction(
+            previous_hash='0',
+            sender='0',
+            recipient=self.identifer,  # Change later
+            amount=50
+        )
+
+        previous_hash = self.blockchain.hash(last_block)
+        block = self.blockchain.add_block(proof, previous_hash)
+        self.send('addblock', message=json.dumps({
+            'block': block
+        }))
+
+    # @override
+    def handle_data(self, data):
+        BlockchainNode.handle_data(data)
+
+        # Handle Request
+        msg_type = data['type']
+        identifier = data['identifier']
+        message = json.loads(data['message']) if data['message'] else {}
+
+        if msg_type == 'addtx':
+            # Add Transaction
+            new_tx = message['tx']
+
+            if Blockchain.valid_transaction(new_tx):
+                self.blockchain.transaction_pool.append(new_tx)
 
 class SPVNode(Node):
     """

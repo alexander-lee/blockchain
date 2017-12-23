@@ -6,7 +6,8 @@ from time import time
 class Blockchain(object):
     def __init__(self, chain=[]):
         self.chain = chain
-        self.current_transactions = []
+        self.transaction_pool = set()
+        self.transactions_info = {'0': None}  # 0 is a reserved tx hash
 
         # Create the genesis block
         if len(chain) == 0:
@@ -36,34 +37,50 @@ class Blockchain(object):
         block = {
             'index': len(self.chain) + 1,
             'timestamp': time(),
-            'transactions': self.current_transactions,
+            'transactions': list(self.transaction_pool),
             'proof': proof,
             'previous_hash': previous_hash or self.hash(self.chain[-1]),
         }
 
-        self.current_transactions = []
+        self.transaction_pool = set()
         self.chain.append(block)
 
         return block
 
-    def add_transaction(self, sender, recipient, amount):
+    def add_transaction(self, sender, recipient, amount, previous_hash):
         """
-        Add a new transaction to the list of transactions
+        Add a new transaction to the transaction pool.
+
+        - First verify that the previous hash leads to a valid transaction
+          where the recipient of that transaction is the sender of this one
 
         @param sender: <str> Address of sender
         @param recipient: <str> Address of recipient
         @param amount: <int> Amount
+        @param previous_hash: <str> hash of the previous transaction used
 
-        @return: <int> The index of the block that will hold this transaction
+        @return: <str> transaction hash if it was successful, or None
         """
 
-        self.current_transactions.append({
+        # Small validation of the transaction
+        if previous_hash in self.transaction_pool:
+            prev_tx = self.transactions_info[previous_hash]
+            if prev_tx['recipient'] != sender:
+                return None
+
+        tx = {
+            'previous_hash': previous_hash,
             'sender': sender,
             'recipient': recipient,
             'amount': amount
-        })
+        }
 
-        return self.last_block['index'] + 1
+        tx_hash = self.hash(tx)
+
+        self.transaction_pool.add(tx_hash)
+        self.transactions_info[tx_hash] = tx
+
+        return tx_hash
 
     def proof_of_work(self, last_proof):
         """
@@ -83,9 +100,9 @@ class Blockchain(object):
         return proof
 
     @staticmethod
-    def hash(block):
+    def hash(_dict):
         """
-        Create a SHA-256 hash of a block dict
+        Create a SHA-256 hash of a dict
 
         @param block: <dict> Block
 
@@ -93,8 +110,8 @@ class Blockchain(object):
         """
 
         # Order the dictionary to ensure consistent block hashes
-        block_str = json.dumps(block, sort_keys=True).encode()
-        return hashlib.sha256(block_str).hexdigest()
+        dict_str = json.dumps(_dict, sort_keys=True).encode()
+        return hashlib.sha256(dict_str).hexdigest()
 
     @staticmethod
     def is_valid_proof(last_proof, proof):
@@ -151,3 +168,18 @@ class Blockchain(object):
                 return False
 
         return True
+
+    @staticmethod
+    def valid_transaction(transaction):
+        """
+        Determines whether a transaction is valid or not
+
+        It needs to verify two things:
+        - Digital Signature
+        - Unspent Transaction Output of Sender >= Amount in this transaction
+
+        @param transaction: <dict>
+
+        @return <bool> True/False depending on whether the transaction is valid
+        """
+        pass
