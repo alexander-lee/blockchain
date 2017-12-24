@@ -36,6 +36,8 @@ class Node(threading.Thread):
         self.ready = False
         self.synced = False
 
+        self.heartbeat_thread = threading.Thread(target=self.send_heartbeat)
+
         # Start Network Component
         [link.start() for link in self.links]
         self.network.start()
@@ -49,17 +51,31 @@ class Node(threading.Thread):
     # Threading
     def run(self):
         while self.keep_listening:
+            # Remove peers who have disconnected
+            disconnected_peers = []
+            for peer_id, info in self.peer_info.items():
+                if info['lastsend'] - info['lastrecv'] > 10:
+                    disconnected_peers.append(peer_id)
+
+            for peer_id in disconnected_peers:
+                print(f'Disconnecting {peer_id} for being idle')
+                self.peer_info.pop(peer_id)
+                self.peers.remove(peer_id)
+
+            # Check for new packets
             for interface in self.network.interfaces:
                 try:
                     self.recv(self.network.inq[interface].get(timeout=0), interface)
                 except Empty:
-                    sleep(0.01)
+                    sleep(0.1)
 
     def stop(self):
         self.keep_listening = False
+
         self.network.stop()
         [link.stop() for link in self.links]
 
+        self.heartbeat_thread.join()
         self.join()
 
     # I/O
@@ -76,8 +92,11 @@ class Node(threading.Thread):
         self.network.send(bytes(data, encoding))
 
         # Update Peer Info
-        if target in self.peers:
+        if target:
             self.peer_info[target]['lastsend'] = time()
+        else:
+            for peer in self.peers:
+                self.peer_info[peer]['lastsend'] = time()
 
     def recv(self, packet, interface):
         data = json.loads(packet.decode())
@@ -110,8 +129,21 @@ class Node(threading.Thread):
                     'height': len(self.blockchain.chain)
                 }))
             print(self.peers)
+
         elif msg_type == 'verack':
             self.ready = True
+            self.heartbeat_thread.start()
+
+        elif msg_type == 'heartbeat':
+            self.send('heartbeatack', target=sender)
+
+        elif msg_type == 'heartbeatack':
+            pass
+
+    def send_heartbeat(self):
+        while self.keep_listening:
+            self.send('heartbeat')
+            sleep(10)
 
     # Methods
     def register_peer(self, identifier, height):
@@ -128,7 +160,7 @@ class Node(threading.Thread):
             self.peer_info[identifier] = {
                 'identifier': identifier,
                 'lastrecv': time(),
-                'lastsend': None,
+                'lastsend': 0,
                 'height': height
             }
 
@@ -209,6 +241,11 @@ class BlockchainNode(Node):
                 'tx_info': self.blockchain.tx_info
             }))
 
+        elif msg_type == 'getheaders':
+            self.send('headers', target=sender, message=json.dumps({
+                'headers': list(map(lambda block: block['header'], self.blockchain.chain))
+            }))
+
         elif msg_type == 'chain':
             chain = message['chain']
             tx_info = message['tx_info']
@@ -276,15 +313,15 @@ class MinerNode(BlockchainNode):
         # 3. Reward the miner
 
         last_block = self.blockchain.last_block
-        prev_hash = Blockchain.hash(last_block)
+        prev_hash = Blockchain.hash(last_block['header'])
         proof = self.proof_of_work(prev_hash)
 
         # Create a special transaction which acts as the reward for the miner
         # TODO: Change amount so it decreases over time
-        self.blockchain.add_transaction(
+        self.blockchain.verify_and_add_transaction(
             previous_hash='0',
             sender='0',
-            recipient=self.identifier,  # TODO: Change later
+            recipient=self.identifier,
             amount=50
         )
 
@@ -306,7 +343,7 @@ class MinerNode(BlockchainNode):
         if msg_type == 'addtx':
             # Add Transaction
             new_tx = message['tx']
-            self.blockchain.add_transaction(**new_tx)
+            self.blockchain.verify_and_add_transaction(**new_tx)
 
 
 class SPVNode(Node):
@@ -317,4 +354,63 @@ class SPVNode(Node):
     - Unable to verify UTXOs (Unspent Transaction Output)
     - Downloads a block header and the 6 next succeeding block headers related to a transaction
     """
-    pass
+
+    def resolve_conflicts(self):
+        """
+        The Consensus Algorithm, replaces our chain with the longest valid chain in the network
+
+        Note: This is not the algorithm the actual Bitcoin Core uses as it requires much more P2P,
+        as a proof of concept, this was more suitable
+        """
+        print('Resolving Conflicts!')
+
+        max_height = len(self.blockchain.chain)
+        max_height_peer = None
+
+        for peer in self.peers:
+            peer_info = self.peer_info.get(peer)
+            if peer_info:
+                height = peer_info.get('height')
+                if height > max_height:
+                    max_height = height
+                    max_height_peer = peer
+
+        # Check if we actually need to update our blockchain
+        if max_height_peer:
+            self.send('getheaders', target=max_height_peer)
+        else:
+            # Didn't need to update our blockchain
+            self.synced = True
+
+    # @override
+    def handle_data(self, data):
+        Node.handle_data(self, data)
+
+        # Handle Request
+        msg_type = data['type']
+        sender = data['identifier']
+        message = json.loads(data['message']) if data['message'] else {}
+
+        if msg_type == 'getheaders':
+            # Send blockchain.chain cause its chain only contains headers
+            self.send('headers', target=sender, message=json.dumps({
+                'headers': self.blockchain.chain
+            }))
+
+        elif msg_type == 'headers':
+            headers = message['headers']
+
+            # Update Peer Info
+            if sender in self.peers:
+                self.peer_info[sender]['height'] = len(headers)
+
+            # Update Chain with just headers
+            if Blockchain.valid_headers(headers):
+                self.blockchain.chain = headers
+                self.synced = True
+            else:
+                self.resolve_conflicts()
+
+        elif msg_type == 'merkleblock':
+            # Verify the transaction with the merkle path
+            pass

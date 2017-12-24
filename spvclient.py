@@ -3,7 +3,7 @@ import time
 import json
 import argparse
 
-from src.nodes import BlockchainNode
+from src.nodes import SPVNode
 from src.blockchain import Blockchain
 
 
@@ -27,12 +27,12 @@ if __name__ == '__main__':
     filename = args.file
     if filename:
         data = json.load(open(filename))
-        blockchain = Blockchain(data['chain'], data['tx_info'])
+        blockchain = Blockchain(list(map(lambda block: block['header'], data['chain'])))
     else:
         filename = args.o
         blockchain = Blockchain()
 
-    node = BlockchainNode(
+    node = SPVNode(
         name=args.n or f'node-{node_id}',
         port=args.p or 5000,
         blockchain=blockchain
@@ -73,7 +73,6 @@ if __name__ == '__main__':
                     node.send('addtx', message=json.dumps({
                         'tx': tx
                     }))
-
             time.sleep(1)
 
     except (EOFError, KeyboardInterrupt):

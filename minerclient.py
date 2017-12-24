@@ -14,10 +14,10 @@ from src.blockchain import Blockchain
 """
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-n', type=str)
-parser.add_argument('-p', type=int)
-parser.add_argument('--file', type=str)
-parser.add_argument('-o', type=str)
+parser.add_argument('-n', type=str, help='node name')
+parser.add_argument('-p', type=int, help='port number (default: 5000)')
+parser.add_argument('--file', type=str, help='specified file storing the blockchain (default: \'blockchain.json\')')
+parser.add_argument('-o', type=str, help='output file without requiring an initial blockchain file to read from (default: \'blockchain.json\')')
 
 args = parser.parse_args()
 node_id = uuid()
@@ -27,7 +27,7 @@ if __name__ == '__main__':
     filename = args.file
     if filename:
         data = json.load(open(filename))
-        blockchain = Blockchain(data['chain'], data['tx'])
+        blockchain = Blockchain(data['chain'], data['tx_info'])
     else:
         filename = args.o
         blockchain = Blockchain()
@@ -49,9 +49,9 @@ if __name__ == '__main__':
             time.sleep(1)
 
         # Sync up with the other nodes
-        node.resolve_conflicts()
         while not node.synced:
-            time.sleep(1)
+            node.resolve_conflicts()
+            time.sleep(5)
 
         # Mine blocks
         while True:
