@@ -205,11 +205,13 @@ class BlockchainNode(Node):
 
         if msg_type == 'getdata':
             self.send('chain', target=sender, message=json.dumps({
-                'chain': self.blockchain.chain
+                'chain': self.blockchain.chain,
+                'tx_info': self.blockchain.tx_info
             }))
 
         elif msg_type == 'chain':
             chain = message['chain']
+            tx_info = message['tx_info']
 
             # Update Peer Info
             if sender in self.peers:
@@ -218,6 +220,7 @@ class BlockchainNode(Node):
             # Update Chain
             if Blockchain.valid_chain(chain):
                 self.blockchain.chain = chain
+                self.blockchain.tx_info = {**self.blockchain.tx_info, **tx_info}
                 self.synced = True
             else:
                 # Invaild chain, ask for another peer's
@@ -225,11 +228,12 @@ class BlockchainNode(Node):
 
         elif msg_type == 'addblock':
             new_block = message['block']
-            new_height = message['height']
+            height = message['height']
+            tx_info = message['tx_info']
 
             # Update Peer Info
             if sender in self.peers:
-                self.peer_info[sender]['height'] = new_height
+                self.peer_info[sender]['height'] = height
 
             # Update Chain
             chain = self.blockchain.chain.copy()
@@ -237,6 +241,7 @@ class BlockchainNode(Node):
 
             if Blockchain.valid_chain(chain):
                 self.blockchain.chain = chain
+                self.blockchain.tx_info = {**self.blockchain.tx_info, **tx_info}
             else:
                 # Invalid chain, ask for another peer's chain
                 self.resolve_conflicts()
@@ -286,6 +291,7 @@ class MinerNode(BlockchainNode):
         block = self.blockchain.add_block(proof, prev_hash)
         self.send('addblock', message=json.dumps({
             'block': block,
+            'tx_info': self.blockchain.tx_info,
             'height': len(self.blockchain.chain)
         }))
 

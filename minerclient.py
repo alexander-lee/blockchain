@@ -27,7 +27,7 @@ if __name__ == '__main__':
     filename = args.file
     if filename:
         data = json.load(open(filename))
-        blockchain = Blockchain(data['chain'])
+        blockchain = Blockchain(data['chain'], data['tx'])
     else:
         filename = args.o
         blockchain = Blockchain()
@@ -59,16 +59,10 @@ if __name__ == '__main__':
             if (user_input):
                 print(f'{node.identifier} is mining!')
                 node.mine()
-
-                # Save Blockchain to file
-                with open(filename or 'blockchain.json', 'w') as outfile:
-                    json.dump({'chain': blockchain.chain}, outfile, indent=4)
+                node.blockchain.save(filename or 'blockchain.json')
 
             time.sleep(1)
 
     except (EOFError, KeyboardInterrupt):
         node.stop()
-
-        # Save Blockchain to file
-        with open(filename or 'blockchain.json', 'w') as outfile:
-            json.dump({'chain': blockchain.chain}, outfile, indent=4)
+        node.blockchain.save(filename or 'blockchain.json')

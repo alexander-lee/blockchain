@@ -4,10 +4,10 @@ from time import time
 
 
 class Blockchain(object):
-    def __init__(self, chain=[]):
+    def __init__(self, chain=[], tx_info=None):
         self.chain = chain
         self.transaction_pool = []
-        self.transactions_info = {'0': None}  # 0 is a reserved tx hash
+        self.tx_info = tx_info or {'0': None}  # 0 is a reserved tx hash for rewards
 
         # Create the genesis block
         if len(chain) == 0:
@@ -66,17 +66,19 @@ class Blockchain(object):
             'previous_hash': previous_hash,
             'sender': sender,
             'recipient': recipient,
-            'amount': amount
+            'amount': amount,
+            'timestamp': time()
         }
 
         if not self.valid_transaction(tx):
             print('Invalid Transaction!')
             return None
 
+        # TxID = Double Hash of the Transaction
         tx_hash = self.hash(self.hash(tx))
 
         self.transaction_pool.append(tx_hash)
-        self.transactions_info[tx_hash] = tx
+        self.tx_info[tx_hash] = tx
 
         return tx_hash
 
@@ -112,7 +114,7 @@ class Blockchain(object):
             return True
 
         if previous_hash in self.transaction_pool:
-            prev_tx = self.transactions_info[previous_hash]
+            prev_tx = self.tx_info[previous_hash]
 
             if prev_tx['recipient'] != transaction['sender']:
                 return False
@@ -123,6 +125,13 @@ class Blockchain(object):
             return False
 
         return True
+
+    def save(self, filename='blockchain.json'):
+        with open(filename or 'blockchain.json', 'w') as outfile:
+            json.dump({
+                'chain': self.chain,
+                'tx_info': self.tx_info,
+            }, outfile, indent=4)
 
     @staticmethod
     def hash(_dict):
