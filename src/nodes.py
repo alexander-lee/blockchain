@@ -134,11 +134,12 @@ class Node(threading.Thread):
         elif msg_type == 'verack':
             self.ready = True
 
-        elif msg_type == 'heartbeat':
-            self.send('heartbeatack', target=sender)
+        if self.ready:
+            if msg_type == 'heartbeat':
+                self.send('heartbeatack', target=sender)
 
-        elif msg_type == 'heartbeatack':
-            pass
+            elif msg_type == 'heartbeatack':
+                pass
 
     def send_heartbeat(self):
         while self.keep_listening and self.ready:
@@ -411,6 +412,24 @@ class SPVNode(Node):
                 self.blockchain.chain = headers
                 self.synced = True
             else:
+                self.resolve_conflicts()
+
+        elif msg_type == 'addblock':
+            new_block_header = message['block']['header']
+            height = message['height']
+
+            # Update Peer Info
+            if sender in self.peers:
+                self.peer_info[sender]['height'] = height
+
+            # Update Chain
+            chain = self.blockchain.chain.copy()
+            chain.append(new_block_header)
+
+            if Blockchain.valid_chain(chain):
+                self.blockchain.chain = chain
+            else:
+                # Invalid chain, ask for another peer's chain
                 self.resolve_conflicts()
 
         elif msg_type == 'merkleblock':
