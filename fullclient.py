@@ -57,21 +57,21 @@ if __name__ == '__main__':
         while True:
             user_input = input('\nDo you want to add a transaction? (y/n) ')
 
-            if user_input.lower == 'yes' or user_input.lower == 'y':
+            if user_input.lower() == 'yes' or user_input.lower() == 'y':
                 recipient = input('Recipient: ')
                 amount = input('Amount: ')
                 previous_hash = input('Previous Hash: ')
 
-                tx = node.blockchain.add_transaction(
+                tx = node.blockchain.verify_and_add_transaction(
                     sender=node.identifier,
                     recipient=recipient,
-                    amount=amount,
+                    amount=int(amount),
                     previous_hash=previous_hash
                 )
 
                 if tx:
                     node.send('addtx', message=json.dumps({
-                        'tx': tx
+                        'tx': json.dumps(tx)
                     }))
 
             time.sleep(1)

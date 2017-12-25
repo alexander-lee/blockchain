@@ -92,7 +92,7 @@ class Blockchain(object):
         self.transaction_pool.append(tx_hash)
         self.tx_info[tx_hash] = tx
 
-        return tx_hash
+        return tx
 
     def valid_transaction(self, transaction):
         """
@@ -125,15 +125,18 @@ class Blockchain(object):
         if previous_hash == '0':
             return True
 
-        if previous_hash in self.transaction_pool:
+        if previous_hash in self.tx_info:
             prev_tx = self.tx_info[previous_hash]
 
             if prev_tx['recipient'] != transaction['sender']:
+                print('Previous transaction\'s recipient is not the current sender')
                 return False
 
             if prev_tx['amount'] < transaction['amount']:
+                print('Previous transaction\'s amount is not enough')
                 return False
         else:
+            print('Cannot find transaction with that hash')
             return False
 
         return True

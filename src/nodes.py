@@ -41,6 +41,7 @@ class Node(threading.Thread):
         # Start Network Component
         [link.start() for link in self.links]
         self.network.start()
+        self.heartbeat_thread.start()
         self.start()
 
     @property
@@ -51,14 +52,14 @@ class Node(threading.Thread):
     # Threading
     def run(self):
         while self.keep_listening:
-            # Remove peers who have disconnected
+            # Remove peers who have disconnected after 30 mins
             disconnected_peers = []
             for peer_id, info in self.peer_info.items():
-                if info['lastsend'] - info['lastrecv'] > 10:
+                if info['lastsend'] - info['lastrecv'] > 60*30:
                     disconnected_peers.append(peer_id)
 
             for peer_id in disconnected_peers:
-                print(f'Disconnecting {peer_id} for being idle')
+                print(f'Disconnecting {peer_id} for being idle for 30 minutes')
                 self.peer_info.pop(peer_id)
                 self.peers.remove(peer_id)
 
@@ -132,7 +133,6 @@ class Node(threading.Thread):
 
         elif msg_type == 'verack':
             self.ready = True
-            self.heartbeat_thread.start()
 
         elif msg_type == 'heartbeat':
             self.send('heartbeatack', target=sender)
@@ -141,9 +141,9 @@ class Node(threading.Thread):
             pass
 
     def send_heartbeat(self):
-        while self.keep_listening:
+        while self.keep_listening and self.ready:
+            sleep(60*30)
             self.send('heartbeat')
-            sleep(10)
 
     # Methods
     def register_peer(self, identifier, height):
@@ -342,7 +342,9 @@ class MinerNode(BlockchainNode):
 
         if msg_type == 'addtx':
             # Add Transaction
-            new_tx = message['tx']
+            new_tx = json.loads(message['tx'])
+            new_tx.pop('timestamp')
+
             self.blockchain.verify_and_add_transaction(**new_tx)
 
 
